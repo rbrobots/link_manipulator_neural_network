@@ -14,8 +14,8 @@ T01=[cos(theta1),0,sin(theta1),0; sin(theta1), 0,-cos(theta1),0;0,1,0,d1;0,0,0,1
 T12=[cos(theta2),-sin(theta2),0,d2*cos(theta2);sin(theta2),cos(theta2),0,d2*sin(theta2);0,0,1,0;0,0,0,1;];%YES
 T23=[cos(theta3),-sin(theta3),0,d3*cos(theta3);sin(theta3),cos(theta3),0,d3*sin(theta3);0,0,1,0;0,0,0,1;];%YES
 %T34=[cos(theta4),0,sin(theta4),0;sin(theta4),0,-cos(theta4),0;0,1,0,0;0,0,0,1;];%
-T34=[-sin(theta4),0,cos(theta4),0;cos(theta4),0,sin(theta4),0;0,1,0,0;0,0,0,1;];%owen switch sin and cos
-T45=[cos(theta5),-sin(theta5),0,0;sin(theta5),cos(theta5),0,0;0,0,1,d4;0,0,0,1;];%LOOK AT THIS-- APPARENTLY theta5 SHOULD BE 0 BECAUSE MAKES NO DIFF TO POSITION
+T34=[-sin(theta4),0,cos(theta4),0;cos(theta4),0,sin(theta4),0;0,1,0,0;0,0,0,1;];%
+T45=[cos(theta5),-sin(theta5),0,0;sin(theta5),cos(theta5),0,0;0,0,1,d4;0,0,0,1;];%
 T5E=[1,0,0,0;0,1,0,0;0,0,1,d5;0,0,0,1];
 
 %Find final transformation matrix
