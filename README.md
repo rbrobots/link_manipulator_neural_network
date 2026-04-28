@@ -38,11 +38,32 @@ The main entry point. Trains the network on cubic trajectories derived from the 
 
 **Network architecture**
 
-```
-Input layer (3 neurons)     Hidden layer (3 neurons)     Output layer (3 neurons)
-   x position          →       sigmoid activations    →       q2 angle
-   y position                                                  q3 angle
-   z position                                                  q4 angle
+```mermaid
+graph LR
+    subgraph Input["Input Layer"]
+        x["x position"]
+        y["y position"]
+        z["z position"]
+    end
+
+    subgraph Hidden["Hidden Layer (sigmoid)"]
+        h1["Neuron 1"]
+        h2["Neuron 2"]
+        h3["Neuron 3"]
+    end
+
+    subgraph Output["Output Layer (sigmoid)"]
+        q2["q2 angle"]
+        q3["q3 angle"]
+        q4["q4 angle"]
+    end
+
+    x --> h1 & h2 & h3
+    y --> h1 & h2 & h3
+    z --> h1 & h2 & h3
+    h1 & h2 & h3 --> q2
+    h1 & h2 & h3 --> q3
+    h1 & h2 & h3 --> q4
 ```
 
 - **Activation:** Sigmoid — `1 / (1 + exp(-x))`
