@@ -1,188 +1,179 @@
-function x = neural_network(q2t,q3t,q4t)
-%% Initialisation of Variables
-%input a set of angles for q2,q3,q4 as q2=[5 2 1 3]'*pi/180 for example
+function neural_network(joint2_targets, joint3_targets, joint4_targets)
+% Trains and tests a 3-layer neural network for inverse kinematics.
+% Maps end-effector (x, y, z) positions to joint angles (q2, q3, q4).
+%
+% Inputs: joint angle waypoints (in radians) as column vectors,
+%         e.g. joint2_targets = [5 2 1 3]' * pi/180
 
-net=zeros(3,3);%neural network
-dl=zeros(3,3);%backprop to store delta
+%% Initialisation
+% layer_activations: 3x3 matrix where each column is a network layer
+%   col 1 = input layer, col 2 = hidden layer, col 3 = output layer
+layer_activations = zeros(3, 3);
 
-%%initialise weights (which were first randomised)
-w_1=[0.6948    0.3171    0.9502    0.0344    0.4387    0.3816    0.7655    0.7952    0.1869]';
-w_2=[0.4898    0.4456    0.6463    0.7094    0.7547    0.2760    0.6797    0.6551    0.1626]';    
-w=[w_1 w_2];
+% weights: 9x2 matrix. Each column holds 9 weights for one layer transition.
+%   Rows are interleaved: for output neuron n, its weights from input neurons
+%   1/2/3 sit at rows n, n+3, n+6 in that column.
+weights_col1 = [0.6948 0.3171 0.9502 0.0344 0.4387 0.3816 0.7655 0.7952 0.1869]';
+weights_col2 = [0.4898 0.4456 0.6463 0.7094 0.7547 0.2760 0.6797 0.6551 0.1626]';
+weights = [weights_col1, weights_col2];
 
-b1=1;%bias for hidden
-b2=1;%bias for output
-p=0.1;%learning rate
+hidden_bias   = 1;
+output_bias   = 1;
+learning_rate = 0.1;
 
-%get set of input from cubic trajectory for q2,q3,q4 
-%with angles used in FK
+%% Build cubic trajectory for training angles
+joint2_traj = [];
+joint3_traj = [];
+joint4_traj = [];
 
-q2u=[];
-q3u=[];
-q4u=[];
-
-for n=1:size(q2t,1)-1
-    q2s=returnPVA(q2t(n,1),q2t(n+1,1),3);
-    q2u=vertcat(q2u,q2s(:,1));
-    
-    q3s=returnPVA(q3t(n,1),q3t(n+1,1),3);
-    q3u=vertcat(q3u,q3s(:,1));
-    
-    q4s=returnPVA(q4t(n,1),q4t(n+1,1),3);
-    q4u=vertcat(q4u,q4s(:,1));
+for segment = 1:size(joint2_targets, 1) - 1
+    joint2_traj = vertcat(joint2_traj, returnPVA(joint2_targets(segment, 1), joint2_targets(segment+1, 1), 3));
+    joint3_traj = vertcat(joint3_traj, returnPVA(joint3_targets(segment, 1), joint3_targets(segment+1, 1), 3));
+    joint4_traj = vertcat(joint4_traj, returnPVA(joint4_targets(segment, 1), joint4_targets(segment+1, 1), 3));
 end
 
-q=[q2u q3u q4u];%expected output
+% target_angles: expected network outputs — one row per time step
+target_angles = [joint2_traj, joint3_traj, joint4_traj];
 
-%use FK to get end effector positions
-T0E=returnTransformation(6);
+%% Compute end-effector positions via forward kinematics (input to network)
+end_effector_transform = returnTransformation(6);
 
 syms theta1 theta2 theta3 theta4 theta5;
-%Replace angles in FK by those defined above
-%to get input for neural network
-xt=double(subs(T0E(1,1),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
-yt=double(subs(T0E(1,2),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
-zt=double(subs(T0E(1,3),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
+fixed_base_angle = -90;
 
-i=[xt yt zt];%input values for neural network
-co=1;%counter
-%% Training Network
-while(co~=size(q,1))%iterate however many times specified by input
-   net(1,1)=i(co,1);
-   net(2,1)=i(co,2);
-   net(3,1)=i(co,3);
+ee_x = double(subs(end_effector_transform(1, 1), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
+ee_y = double(subs(end_effector_transform(1, 2), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
+ee_z = double(subs(end_effector_transform(1, 3), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
 
-    %feedforward
-    for m=1:size(net,2)%rows
-       for n=1:size(net,1)%columns
-           if(m==2)%if hidden layer
-               w1=[w(n,m-1) w(n+3,m-1) w(n+6,m-1)]';%3,6,9
-               a=sum((net(:,1).*w1))+b1;%activation this neuron equals sum(w*i)+b
-               net(n,m)=1/(1+exp(-a));%neuron equals output calculated via sigmoid function
-               
-           elseif(m==3)% if output layer
-               w2=[w(n,m-1) w(n+3,m-1) w(n+6,m-1)]';
-               a=sum(net(:,2).*w2)+b2;%activation - takes output from hidden layer as input
-               net(n,m)=1/(1+exp(-a));%store sigmoid in network
-           end
-       end
-    end
-    
-    %backpropagate
-    for m=size(net,2):-1:1%rows
-        for n=size(net,1):-1:1%columns
-            if(m==size(net,2))  %output layer to hidden
-                o=net(n,m);%output
-                if(n==1)%target is q2
-                %t=do(n,1);%target output
-                    t=q(co,1);
-                elseif(n==2)%target is q3
-                    t=q(co,2);
-                elseif(n==3)%target is q4
-                    t=q(co,3);
-                end
-                del(n,m)=o*(1-o)*(t-o);%error gradient
+network_inputs = [ee_x, ee_y, ee_z];
 
-                %update weights. 3 different weights all the same delta 
-               w1=[w(n,m-1) w(n+3,m-1) w(n+6,m-1)]';% 3 6 9            
-               
-               w(n,m-1)=w(n,m-1)+p*del(n,m)*net(1,m-1);%1st weight in hidden layer
-               w(n+3,m-1)=w(n+3,m-1)+p*del(n,m)*net(2,m-1);%2nd weight in hidden layer
-               w(n+6,m-1)=w(n+6,m-1)+p*del(n,m)*net(3,m-1);%3rd weight in hidden layer
-               
-            elseif(m==size(net,2)-1)%hidden layer to input
-                w1=[w(n*3-2,m) w(n*3-1,m) w(n*3,m)]';
-                o=net(n,m);%output
-                del(n,m)=o*(1-o)*sum(del(:,m+1).*w1);%previous delta 
-                
-               w(n,m-1)=w(n,m-1)+p*del(n,m)*net(1,m-1);%1st weight in input layer
-               w(n+3,m-1)=w(n+3,m-1)+p*del(n,m)*net(2,m-1);%2nd weight in input layer
-               w(n+6,m-1)=w(n+6,m-1)+p*del(n,m)*net(3,m-1);%3rd weight in input layer
-               
+%% Training
+sample_idx = 1;
+
+while sample_idx ~= size(target_angles, 1)
+    % Load current sample into the input layer
+    layer_activations(:, 1) = network_inputs(sample_idx, :)';
+
+    % --- Feedforward pass ---
+    for layer_idx = 1:size(layer_activations, 2)
+        for neuron_idx = 1:size(layer_activations, 1)
+            if layer_idx == 2  % hidden layer: inputs come from layer 1
+                neuron_weights = [weights(neuron_idx, layer_idx-1); weights(neuron_idx+3, layer_idx-1); weights(neuron_idx+6, layer_idx-1)];
+                weighted_sum   = sum(layer_activations(:, 1) .* neuron_weights) + hidden_bias;
+                layer_activations(neuron_idx, layer_idx) = sigmoid(weighted_sum);
+
+            elseif layer_idx == 3  % output layer: inputs come from hidden layer
+                neuron_weights = [weights(neuron_idx, layer_idx-1); weights(neuron_idx+3, layer_idx-1); weights(neuron_idx+6, layer_idx-1)];
+                weighted_sum   = sum(layer_activations(:, 2) .* neuron_weights) + output_bias;
+                layer_activations(neuron_idx, layer_idx) = sigmoid(weighted_sum);
             end
         end
-    end 
-    co=co+1;%increment counter
+    end
+
+    % --- Backpropagation pass ---
+    delta = zeros(size(layer_activations));
+
+    for layer_idx = size(layer_activations, 2):-1:1
+        for neuron_idx = size(layer_activations, 1):-1:1
+
+            if layer_idx == size(layer_activations, 2)  % output layer
+                neuron_output = layer_activations(neuron_idx, layer_idx);
+                target_val    = target_angles(sample_idx, neuron_idx);
+                delta(neuron_idx, layer_idx) = neuron_output * (1 - neuron_output) * (target_val - neuron_output);
+
+                % Update weights connecting hidden → this output neuron
+                weights(neuron_idx,   layer_idx-1) = weights(neuron_idx,   layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(1, layer_idx-1);
+                weights(neuron_idx+3, layer_idx-1) = weights(neuron_idx+3, layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(2, layer_idx-1);
+                weights(neuron_idx+6, layer_idx-1) = weights(neuron_idx+6, layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(3, layer_idx-1);
+
+            elseif layer_idx == size(layer_activations, 2) - 1  % hidden layer
+                % Weights from this hidden neuron to all output neurons
+                output_weights = [weights(neuron_idx*3-2, layer_idx+1); weights(neuron_idx*3-1, layer_idx+1); weights(neuron_idx*3, layer_idx+1)];
+                neuron_output = layer_activations(neuron_idx, layer_idx);
+                delta(neuron_idx, layer_idx) = neuron_output * (1 - neuron_output) * sum(delta(:, layer_idx+1) .* output_weights);
+
+                % Update weights connecting input → this hidden neuron
+                weights(neuron_idx,   layer_idx-1) = weights(neuron_idx,   layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(1, layer_idx-1);
+                weights(neuron_idx+3, layer_idx-1) = weights(neuron_idx+3, layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(2, layer_idx-1);
+                weights(neuron_idx+6, layer_idx-1) = weights(neuron_idx+6, layer_idx-1) + learning_rate * delta(neuron_idx, layer_idx) * layer_activations(3, layer_idx-1);
+            end
+        end
+    end
+
+    sample_idx = sample_idx + 1;
 end
 
 disp('Training Complete')
-%% Testing Network
-%store difference between output and expected output
 
-%get values used in assignment
+%% Testing
+% Evaluate the trained network on a fixed set of test angles and report MSE.
 
-%angles used in assignment for testing
-co=1;%counter
-MSE_q2=0;%mean squared error intialised
-MSE_q3=0;%mean squared error intialised
-MSE_q4=0;%mean squared error intialised
+test_joint2 = [40 90 45 40 45 20 30 45 90 45]'  * pi/180;
+test_joint3 = [-20 -70 -45 -50 -47 -60 -50 -45 -70 -20]' * pi/180;
+test_joint4 = [20 5 10 0 10 -40 0 10 5 20]'      * pi/180;
 
-q2 = [40 90 45 40 45 20 30 45 90 45 ]'*pi/180;
-q3 = [-20 -70 -45 -50 -47 -60 -50 -45 -70 -20 ]'*pi/180;
-q4 = [20 5 10 0 10 -40 0 10 5 20]'*pi/180;
+joint2_traj = [];
+joint3_traj = [];
+joint4_traj = [];
 
-%retrieve x,y,z for q2,q3,q4
-q2u=[];
-q3u=[];
-q4u=[];
-%get set of input from cubic trajectory for q2,q3,q4 
-%with EE positions from FK
-%lock q1 at -90
-for n=1:size(q2,1)-1
-    q2s=returnPVA(q2(n,1),q2(n+1,1),3);
-    q2u=vertcat(q2u,q2s(:,1));
-    
-    q3s=returnPVA(q3(n,1),q3(n+1,1),3);
-    q3u=vertcat(q3u,q3s(:,1));
-    
-    q4s=returnPVA(q4(n,1),q4(n+1,1),3);
-    q4u=vertcat(q4u,q4s(:,1));
+for segment = 1:size(test_joint2, 1) - 1
+    joint2_traj = vertcat(joint2_traj, returnPVA(test_joint2(segment, 1), test_joint2(segment+1, 1), 3));
+    joint3_traj = vertcat(joint3_traj, returnPVA(test_joint3(segment, 1), test_joint3(segment+1, 1), 3));
+    joint4_traj = vertcat(joint4_traj, returnPVA(test_joint4(segment, 1), test_joint4(segment+1, 1), 3));
 end
 
-q=[q2u q3u q4u];%expected output
+target_angles = [joint2_traj, joint3_traj, joint4_traj];
 
-%use FK to get end effector positions
-T0E=returnTransformation(6);
+end_effector_transform = returnTransformation(6);
 
 syms theta1 theta2 theta3 theta4 theta5;
-%Replace angles in FK by those defined above
-%to get input for neural network
-xt=double(subs(T0E(1,1),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
-yt=double(subs(T0E(1,2),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
-zt=double(subs(T0E(1,3),{theta1 theta2 theta3 theta4 theta5},{-90 q2u q3u q4u 0}));
+ee_x = double(subs(end_effector_transform(1, 1), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
+ee_y = double(subs(end_effector_transform(1, 2), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
+ee_z = double(subs(end_effector_transform(1, 3), {theta1 theta2 theta3 theta4 theta5}, {fixed_base_angle joint2_traj joint3_traj joint4_traj 0}));
 
-i=[xt yt zt];%input values for neural network
-%while loop. 
-while(co~=size(q,1))%iterate 
-   net(1,1)=i(co,1);
-   net(2,1)=i(co,2);
-   net(3,1)=i(co,3);
+network_inputs = [ee_x, ee_y, ee_z];
 
-    %feedforward
-    for m=1:size(net,2)%rows
-       for n=1:size(net,1)%columns
-           if(m==2)%if hidden layer
-               w1=[w(n,m-1) w(n+3,m-1) w(n+6,m-1)]';%3,6,9
-               a=sum((net(:,1).*w1))+b1;%activation this neuron equals sum(w*i)+b
-               net(n,m)=1/(1+exp(-a));%neuron equals output
-               
-           elseif(m==3)% if output layer
-               w2=[w(n,m-1) w(n+3,m-1) w(n+6,m-1)]';
-               a=sum(net(:,2).*w2)+b2;%activation - takes output from hidden layer as input
-               net(n,m)=1/(1+exp(-a));%store sigmoid in network
-           end
-       end
+sample_idx = 1;
+mse_joint2 = 0;
+mse_joint3 = 0;
+mse_joint4 = 0;
+
+while sample_idx ~= size(target_angles, 1)
+    layer_activations(:, 1) = network_inputs(sample_idx, :)';
+
+    % Feedforward only (no weight updates during testing)
+    for layer_idx = 1:size(layer_activations, 2)
+        for neuron_idx = 1:size(layer_activations, 1)
+            if layer_idx == 2
+                neuron_weights = [weights(neuron_idx, layer_idx-1); weights(neuron_idx+3, layer_idx-1); weights(neuron_idx+6, layer_idx-1)];
+                weighted_sum   = sum(layer_activations(:, 1) .* neuron_weights) + hidden_bias;
+                layer_activations(neuron_idx, layer_idx) = sigmoid(weighted_sum);
+
+            elseif layer_idx == 3
+                neuron_weights = [weights(neuron_idx, layer_idx-1); weights(neuron_idx+3, layer_idx-1); weights(neuron_idx+6, layer_idx-1)];
+                weighted_sum   = sum(layer_activations(:, 2) .* neuron_weights) + output_bias;
+                layer_activations(neuron_idx, layer_idx) = sigmoid(weighted_sum);
+            end
+        end
     end
-   %compare output values by MSE
-    MSE_q2=MSE_q2+(q(co,1)-net(1,3))^2;%(q2-q2')^2
-    MSE_q3=MSE_q3+(q(co,2)-net(2,3))^2;
-    MSE_q4=MSE_q4+(q(co,3)-net(3,3))^2;
-   
-   co=co+1;%increment counter 
-end
-    MSE_q2=(1/size(q,1)*MSE_q2)
-    MSE_q3=(1/size(q,1)*MSE_q3)
-    MSE_q4=(1/size(q,1)*MSE_q4)
-    
-disp('Testing Complete')
 
+    % Accumulate squared errors for each output joint
+    mse_joint2 = mse_joint2 + (target_angles(sample_idx, 1) - layer_activations(1, 3))^2;
+    mse_joint3 = mse_joint3 + (target_angles(sample_idx, 2) - layer_activations(2, 3))^2;
+    mse_joint4 = mse_joint4 + (target_angles(sample_idx, 3) - layer_activations(3, 3))^2;
+
+    sample_idx = sample_idx + 1;
+end
+
+num_samples = size(target_angles, 1);
+mse_joint2 = (1 / num_samples) * mse_joint2
+mse_joint3 = (1 / num_samples) * mse_joint3
+mse_joint4 = (1 / num_samples) * mse_joint4
+
+disp('Testing Complete')
+end
+
+%% Helper
+function y = sigmoid(x)
+    y = 1 / (1 + exp(-x));
+end
