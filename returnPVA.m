@@ -1,10 +1,12 @@
-function trajectory = returnPVA(start_pos, end_pos, duration)
-% Returns a cubic trajectory of [position, velocity, acceleration] samples
-% from start_pos to end_pos over `duration` seconds, sampled every 0.1 s.
+function output = returnPVA(p1, p2, t)
+% Returns cubic trajectory samples [position, velocity, acceleration]
+% from p1 to p2 over t seconds, sampled every 0.1 s.
 
-trajectory = [];
+pva = [];
 
-for time_step = 0:0.1:duration
-    pva_point  = calculatePVA(start_pos, end_pos, time_step, duration);
-    trajectory = vertcat(trajectory, pva_point);
+for i = 0:0.1:t
+    X   = calculatePVA(p1, p2, i, t);
+    pva = vertcat(pva, X);
 end
+
+output = pva;
