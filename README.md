@@ -72,7 +72,7 @@ graph LR
 
 **Training:** Cubic trajectories are generated between each consecutive waypoint pair via `returnPVA`. Forward kinematics (`returnTransformation`) converts those angles to (x, y, z) end-effector positions as network inputs. Each time step runs a feedforward pass then a backpropagation pass to update weights.
 
-**Testing:** Evaluated on a hardcoded set of 10 test waypoints. No weight updates occur. Outputs `mse_joint2`, `mse_joint3`, `mse_joint4`.
+**Testing:** Evaluated on a hardcoded set of 10 test waypoints. No weight updates occur. Outputs `MSE_q2`, `MSE_q3`, `MSE_q4`.
 
 ---
 
@@ -106,15 +106,15 @@ Six DH matrices (`T01` through `T5E`) are multiplied cumulatively; the translati
 
 ---
 
-### `returnPVA(start_pos, end_pos, duration)`
+### `returnPVA(p1, p2, t)`
 
 Generates a cubic trajectory between two joint positions, returning position, velocity, and acceleration at each 0.1 s time step.
 
 | Parameter | Description |
 |---|---|
-| `start_pos` | Starting joint angle (radians) |
-| `end_pos` | Target joint angle (radians) |
-| `duration` | Travel time in seconds (e.g. `3` → 31 rows) |
+| `p1` | Starting joint angle (radians) |
+| `p2` | Target joint angle (radians) |
+| `t` | Travel time in seconds (e.g. `3` → 31 rows) |
 
 Returns an N×3 matrix `[position, velocity, acceleration]` per row. Delegates to the external `calculatePVA` for the cubic polynomial computation.
 
